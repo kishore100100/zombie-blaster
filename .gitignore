@@ -1,0 +1,21 @@
+# Original asset-pack zips and formats the game does not load
+assets/_downloads/
+assets/*/Models/FBX format/
+assets/*/Models/OBJ format/
+assets/*/Previews/
+assets/*/*.url
+assets/*/Overview.html
+assets/*/Preview*.png
+assets/*/Sample.png
+
+# Character models that are not used yet
+assets/characters/hunter/Barbarian.glb
+assets/characters/hunter/Knight.glb
+assets/characters/hunter/Mage.glb
+assets/characters/hunter/Rogue.glb
+
+# Local tooling
+.claude/
+node_modules/
+.DS_Store
+Thumbs.db
