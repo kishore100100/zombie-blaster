@@ -3,7 +3,8 @@ import { loadAll, spawnSkinned, spawnStatic, sizeOf } from './assets.js';
 import { Animator } from './anim.js';
 import { FX } from './fx.js';
 import { sfx, initAudio, setVolume } from './audio.js';
-import { buildStreet } from './level.js';
+import { LEVELS } from './level.js';
+import { touch, initTouch } from './touch.js';
 import { hud } from './hud.js';
 import { Zombie } from './zombies.js';
 import { Pickup, rollPowerup } from './pickups.js';
@@ -22,11 +23,6 @@ const CFG = {
   camMinY: 1.0, pitchUp: 0.42, pitchDown: -1.0,   // camera never drops below waist height
   sprintMult: 1.45, aimMoveMult: 0.6, aimSens: 0.6, aimDist: 2.5, aimFov: 44, fov: 62,
 };
-const WAVES = [
-  [['walker', 5]],
-  [['walker', 5], ['runner', 3]],
-  [['walker', 4], ['runner', 3], ['brute', 1]],
-];
 const BLASTER_YAW = 2.07 + Math.PI;
 const POP_WORDS =['SPLOOSH!', 'SOGGY!', 'BLOOP!', 'DRENCHED!', 'SPLAT!', 'WASHED UP!', 'KER-SPLASH!'];
 const WATER = [0x5ad8ff, 0x9be7ff, 0xffffff];
@@ -44,7 +40,8 @@ scene.fog = new THREE.Fog(0xbfe8ff, 45, 130);
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
 camera.rotation.order = 'YXZ';
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x9fd67a, 1.7));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x9fd67a, 1.7);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1d0, 2.4);
 sun.position.set(16, 30, 14);
 sun.castShadow = true;
@@ -92,12 +89,13 @@ const projMatPower = new THREE.MeshBasicMaterial({ color: 0xff7ade });
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _dir = new THREE.Vector3(), _aim = new THREE.Vector3(), _muzzle = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 const camPos = new THREE.Vector3();
+const introCam = new THREE.PerspectiveCamera(), _qB = new THREE.Quaternion(), _euler = new THREE.Euler();
 const clamp = THREE.MathUtils.clamp;
 
 // ---------- Setup ----------
 async function boot() {
   await loadAll(f => { hud.$('loadFill').style.width = (f * 100) + '%'; });
-  G.level = buildStreet(scene);
+  loadLevel(0);
   buildPlayer();
   resetEncounter();
   updateCamera(0, true);
@@ -131,11 +129,14 @@ function resetEncounter() {
   projectiles.length = 0;
   for (const k of pickups) k.dispose();
   pickups.length = 0; pickupTimer = 6;
-  Object.assign(stats, { kills: 0, coins: 0, xp: 0, shots: 0, hits: 0, damageTaken: 0, bestCombo: 0, time: 0 });
+  Object.assign(stats, { kills: 0, shots: 0, hits: 0, damageTaken: 0, bestCombo: 0, time: 0 });
   combo.n = 0; combo.t = 0; megaPending = 0;
   const p = player;
   p.pos.set(G.level.start.x, 0, G.level.start.z); p.vel.set(0, 0, 0);
-  p.yaw = 0; p.pitch = -0.12; p.onGround = true;
+  p.yaw = G.level.startYaw || 0; p.pitch = -0.12; p.onGround = true; p.slowT = 0;
+  for (const sl of slimes) scene.remove(sl.mesh);
+  slimes.length = 0;
+  if (touch.reset) touch.reset();
   Object.assign(p, { hp: p.maxHp, ammo: p.maxAmmo, reloadT: 0, fireT: 0, aimT: 0, dodgeT: 0, dodgeCd: 0, invuln: 0, specialCd: 0, rapidT: 0, tripleT: 0, powerT: 0, lockT: 0, dead: false });
   p.anim.playBoth('Idle', { fade: 0 });
   wave.idx = -1; wave.queue = []; wave.gap = 1.6;
@@ -154,7 +155,7 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyR') startReload();
   }
   if (e.code === 'KeyP' || (e.code === 'Escape' && NOLOCK)) { if (mode === 'playing') pause(); else if (mode === 'paused') resume(); }
-  if ((e.code === 'KeyE' || e.code === 'Enter') && (mode === 'results' || mode === 'gameover')) startGame();
+  if ((e.code === 'KeyE' || e.code === 'Enter') && (mode === 'results' || mode === 'gameover')) { if (mode === 'results') nextEncounter(); else retryEncounter(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; aiming = false; });
@@ -177,7 +178,7 @@ addEventListener('mousemove', e => {
 let cursorX = 0.5;
 /** Without mouse capture the cursor stops at the window edge, so resting it there keeps the camera turning. */
 function edgeTurn(dt) {
-  if (NOLOCK || document.pointerLockElement === canvas) return;
+  if (NOLOCK || touch.enabled || document.pointerLockElement === canvas) return;
   const edge = 0.1;
   if (cursorX < edge) player.yaw += (edge - cursorX) / edge * 2.8 * dt;
   else if (cursorX > 1 - edge) player.yaw -= (cursorX - (1 - edge)) / edge * 2.8 * dt;
@@ -185,7 +186,7 @@ function edgeTurn(dt) {
 let hintShown = false, hintTimer = 0;
 /** If the mouse could not be captured, say so once for a few seconds - never a permanent message. */
 function updateLockHint() {
-  const need = !NOLOCK && mode === 'playing' && document.pointerLockElement !== canvas;
+  const need = !NOLOCK && !touch.enabled && mode === 'playing' && document.pointerLockElement !== canvas;
   if (!need) { hud.show('lockHint', false); return; }
   if (hintShown) return;
   hintShown = true;
@@ -205,25 +206,61 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 function lock() {
-  if (NOLOCK) return;
+  if (NOLOCK || touch.enabled) return;
   try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(updateLockHint); } catch (e) { /* not supported */ }
   setTimeout(updateLockHint, 300);
 }
 function unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
 
-function startGame() {
+// ---------- Level flow ----------
+let levelIdx = 0, introT = 0, travelT = 0;
+const INTRO_TIME = 2.2;
+const bank = { coins: 0, xp: 0 };      // coins and XP carried between encounters
+const levelCache = [];
+
+function loadLevel(i) {
+  levelIdx = i;
+  if (!levelCache[i]) { levelCache[i] = LEVELS[i].build(scene); levelCache[i].index = i + 1; }
+  levelCache.forEach((l, j) => { if (l) l.group.visible = j === i; });
+  const L = G.level = levelCache[i], e = L.env;
+  scene.background.set(e.sky); scene.fog.color.set(e.fog); scene.fog.near = e.fogNear; scene.fog.far = e.fogFar;
+  sun.color.set(e.sun); sun.intensity = e.sunI; sun.position.set(...e.sunPos);
+  hemi.color.set(e.hemiSky); hemi.groundColor.set(e.hemiGround); hemi.intensity = e.hemiI;
+}
+
+/** Start (or restart) the current location with a camera fly-in. */
+function beginEncounter() {
   initAudio();
   ['title', 'results', 'gameover', 'pause'].forEach(id => hud.show(id, false));
   hud.show('hud');
+  stats.coins = bank.coins; stats.xp = bank.xp;
   resetEncounter();
-  mode = 'playing';
+  mode = 'intro'; introT = 0;
+  hud.$('iris').classList.remove('closed');
   lock();
+  if (touch.enabled) {
+    try { const r = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not supported */ }
+  }
   hud.banner(`${G.level.index} · ${G.level.name.toUpperCase()}`, 'Chapter 1 — The Outbreak');
 }
+function newGame() { bank.coins = bank.xp = 0; loadLevel(0); beginEncounter(); }
+function retryEncounter() { beginEncounter(); }
+
+/** Run to the exit, iris out, swap the location, iris back in. */
+function nextEncounter() {
+  if (levelIdx >= LEVELS.length - 1) return newGame();
+  initAudio();
+  hud.show('results', false);
+  lock();
+  mode = 'travel'; travelT = 0;
+  player.yaw = G.level.exitYaw; player.pitch = -0.1;
+  hud.$('travelText').textContent = 'Next stop: ' + LEVELS[levelIdx + 1].name;
+}
 function menuPage(id) { ['menuMain', 'menuSettings', 'menuHelp'].forEach(p => hud.show(p, p === id)); }
-function pause() { mode = 'paused'; firing = false; menuPage('menuMain'); hud.show('pause'); unlock(); updateLockHint(); }
+function pause() { mode = 'paused'; firing = false; if (touch.reset) touch.reset(); menuPage('menuMain'); hud.show('pause'); unlock(); updateLockHint(); }
 function resume() { hud.show('pause', false); mode = 'playing'; lock(); }
 function quitToTitle() {
+  loadLevel(0);
   resetEncounter();
   ['pause', 'results', 'gameover', 'hud'].forEach(id => hud.show(id, false));
   hud.show('title');
@@ -249,17 +286,34 @@ hud.$('optSens').oninput = e => { settings.sens = +e.target.value; applySettings
 hud.$('optInvert').onchange = e => { settings.invert = e.target.checked; applySettings(); };
 applySettings(false);
 
+initTouch({
+  playing: () => mode === 'playing',
+  look(dx, dy) {
+    const k = 0.0052 * settings.sens / 100;
+    player.yaw -= dx * k;
+    player.pitch = clamp(player.pitch - dy * k * (settings.invert ? -1 : 1), CFG.pitchDown, CFG.pitchUp);
+  },
+  fire(v) { firing = v && mode === 'playing'; },
+  action(a) { if (a === 'jump') jump(); else if (a === 'dodge') dodge(); else if (a === 'special') special(); else if (a === 'reload') startReload(); },
+});
+
 hud.$('btnPause').onclick = e => { e.currentTarget.blur(); if (mode === 'playing') pause(); };
 hud.$('btnSettings').onclick = () => menuPage('menuSettings');
 hud.$('btnHelp').onclick = () => menuPage('menuHelp');
 hud.$('btnQuit').onclick = quitToTitle;
 document.querySelectorAll('[data-back]').forEach(b => { b.onclick = () => menuPage('menuMain'); });
 
-hud.$('btnPlay').onclick = startGame;
-hud.$('btnAgain').onclick = startGame;
-hud.$('btnRetry').onclick = startGame;
-hud.$('btnRestartP').onclick = startGame;
+hud.$('btnPlay').onclick = newGame;
+hud.$('btnAgain').onclick = nextEncounter;
+hud.$('btnRetry').onclick = retryEncounter;
+hud.$('btnRestartP').onclick = retryEncounter;
 hud.$('btnResume').onclick = resume;
+
+/** Movement input as forward / right amounts in -1..1 (keyboard or touch stick). */
+function moveInput() {
+  if (touch.move.active) return touch.move;
+  return { f: (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), r: (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) };
+}
 
 // ---------- Player actions ----------
 function jump() {
@@ -272,10 +326,10 @@ function jump() {
 function dodge() {
   const p = player;
   if (p.dead || p.dodgeCd > 0 || !p.onGround) return;
-  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  const { f, r } = moveInput();
   const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
   let fx_ = f, r_ = r;
-  if (!f && !r) fx_ = -1;                               // no input: hop backwards
+  if (Math.hypot(f, r) < 0.2) { fx_ = -1; r_ = 0; }                               // no input: hop backwards
   p.dodgeDir.set(-sy * fx_ + cy * r_, 0, -cy * fx_ - sy * r_).normalize();
   p.dodgeT = CFG.dodgeTime; p.dodgeCd = CFG.dodgeCooldown; p.invuln = Math.max(p.invuln, CFG.dodgeTime);
   const clip = Math.abs(r_) > Math.abs(fx_) ? (r_ > 0 ? 'Dodge_Right' : 'Dodge_Left') : (fx_ > 0 ? 'Dodge_Forward' : 'Dodge_Backward');
@@ -332,7 +386,7 @@ function computeAim(out) {
     const t = _v.dot(_dir);
     if (t < 2 || t > bestT) continue;
     const d = _v.addScaledVector(_dir, -t).length();
-    if (d < z.radius + 0.45) { best = z; bestT = t; }
+    if (d < z.radius + (touch.enabled ? 1.0 : 0.45)) { best = z; bestT = t; }   // more aim help on touch screens
   }
   onTarget = !!best;
   if (best) {
@@ -434,13 +488,16 @@ function updatePlayer(dt) {
 
   const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
   let f = 0, r = 0;
-  if (!p.dead && mode === 'playing') { f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0); r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0); }
+  if (!p.dead && mode === 'playing') ({ f, r } = moveInput());
+  if (mode === 'travel') f = 1;                 // auto-run to the exit
+  p.slowT = (p.slowT || 0) - dt;
   let mx = -sy * f + cy * r, mz = -cy * f - sy * r;
   const len = Math.hypot(mx, mz);
-  if (len > 0) { mx /= len; mz /= len; }
+  if (len > 1) { mx /= len; mz /= len; }
   const isAiming = aiming && !p.dead && mode === 'playing';
-  const sprint = (keys.ShiftLeft || keys.ShiftRight) && f > 0 && !isAiming && !firing && p.onGround;
-  const speed = CFG.moveSpeed * (f < 0 ? 0.72 : 1) * (sprint ? CFG.sprintMult : isAiming ? CFG.aimMoveMult : 1);
+  const slowed = p.slowT > 0;
+  const sprint = (keys.ShiftLeft || keys.ShiftRight || (touch.move.active && len > 0.93)) && f > 0.5 && !isAiming && !firing && !slowed && p.onGround;
+  const speed = CFG.moveSpeed * (f < -0.3 ? 0.72 : 1) * (sprint ? CFG.sprintMult : isAiming ? CFG.aimMoveMult : 1) * (slowed ? 0.5 : 1);
   aimK += ((isAiming ? 1 : 0) - aimK) * (1 - Math.exp(-12 * dt));
   if (isAiming) p.aimT = Math.max(p.aimT, 0.15);
 
@@ -478,9 +535,9 @@ function updatePlayer(dt) {
   if (!p.dead && mode !== 'victory' && p.lockT <= 0) {
     let lower = 'Idle', spd = 1;
     if (!p.onGround) lower = 'Jump_Idle';
-    else if (len > 0) {
-      if (f < 0) { lower = 'Walking_Backwards'; spd = 1.5; }
-      else if (f === 0) lower = r > 0 ? 'Running_Strafe_Right' : 'Running_Strafe_Left';
+    else if (len > 0.08) {
+      if (Math.abs(r) > Math.abs(f) + 0.01) lower = r > 0 ? 'Running_Strafe_Right' : 'Running_Strafe_Left';
+      else if (f < 0) { lower = 'Walking_Backwards'; spd = 1.5; }
       else { lower = 'Running_A'; spd = sprint ? 1.35 : 1; }
       if (isAiming) spd *= 0.7;
     }
@@ -554,12 +611,12 @@ function updateWaves(dt) {
     }
   }
   if (wave.queue.length || G.zombies.length) return;
-  if (wave.idx >= WAVES.length - 1) return victory();
+  if (wave.idx >= G.level.waves.length - 1) return victory();
   wave.gap -= dt;
   if (wave.gap > 0) return;
   wave.idx++; wave.gap = 2.2;
   const list = [];
-  for (const [type, n] of WAVES[wave.idx]) for (let i = 0; i < n; i++) list.push(type);
+  for (const [type, n] of G.level.waves[wave.idx]) for (let i = 0; i < n; i++) list.push(type);
   list.sort(() => Math.random() - 0.5);
   // Farthest-first shuffle of spawn points so each wave arrives from several directions
   const pts = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 7).sort(() => Math.random() - 0.5);
@@ -568,8 +625,31 @@ function updateWaves(dt) {
     wave.queue.push({ type, x: s.x + (Math.random() - 0.5) * 0.8, z: s.z + (Math.random() - 0.5) * 0.8, delay: 0.4 + i * 0.7 });
   });
   spawnPickup();
-  if (wave.idx > 0) hud.banner('WAVE ' + (wave.idx + 1), wave.idx === WAVES.length - 1 ? 'Something big is coming…' : 'Here they come!');
+  if (wave.idx > 0) hud.banner('WAVE ' + (wave.idx + 1), wave.idx === G.level.waves.length - 1 ? 'Something big is coming…' : 'Here they come!');
   sfx.wave();
+}
+
+// ---------- Goozer slime ----------
+const slimes = [];
+const slimeGeo = new THREE.CircleGeometry(1.2, 22); slimeGeo.rotateX(-Math.PI / 2);
+function dropSlime(x, z) {
+  if (slimes.length >= 45) return;
+  const mesh = new THREE.Mesh(slimeGeo, new THREE.MeshBasicMaterial({ color: 0xb565f0, transparent: true, opacity: 0.75, depthWrite: false }));
+  mesh.position.set(x, 0.03 + (slimes.length % 10) * 0.002, z);
+  mesh.scale.setScalar(0.8 + Math.random() * 0.4);
+  scene.add(mesh);
+  slimes.push({ mesh, x, z, life: 7 });
+}
+G.dropSlime = dropSlime;
+function updateSlimes(dt) {
+  const p = player;
+  for (let i = slimes.length - 1; i >= 0; i--) {
+    const sl = slimes[i];
+    sl.life -= dt;
+    sl.mesh.material.opacity = Math.min(0.75, sl.life * 0.5);
+    if (!p.dead && p.pos.y < 0.3 && Math.hypot(sl.x - p.pos.x, sl.z - p.pos.z) < 1.25) p.slowT = 0.35;
+    if (sl.life <= 0) { scene.remove(sl.mesh); sl.mesh.material.dispose(); slimes.splice(i, 1); }
+  }
 }
 
 // ---------- Power-up pickups ----------
@@ -635,6 +715,11 @@ function showResults() {
   if (acc >= 70) { bonus += 25; rewards.push('Sharpshooter +25 🪙'); }
   if (stats.bestCombo >= 10) { bonus += 25; rewards.push('Combo master +25 🪙'); }
   stats.coins += bonus;
+  bank.coins = stats.coins; bank.xp = stats.xp;
+  const last = levelIdx >= LEVELS.length - 1;
+  hud.$('resTitle').textContent = last ? 'CHAPTER CLEAR!' : 'ENCOUNTER CLEAR!';
+  hud.$('resNote').textContent = last ? 'The City Square boss arrives in the next build.' : 'Next stop: ' + LEVELS[levelIdx + 1].name;
+  hud.$('btnAgain').textContent = last ? 'PLAY AGAIN' : 'NEXT LOCATION ▶';
   const stars = 1 + (acc >= 55 ? 1 : 0) + (stats.damageTaken <= 30 ? 1 : 0);
   const m = Math.floor(stats.time / 60), s = Math.floor(stats.time % 60);
   rewards.unshift(`${stats.coins} 🪙 coins`, `${stats.xp} ⭐ XP`);
@@ -673,7 +758,19 @@ function updateCamera(dt, snap = false) {
   if (sp > 0.001) dist = Math.min(dist, Math.max(1.4, (py - CFG.camMinY) / sp));
   _v.set(px - _dir.x * dist, py - _dir.y * dist, pz - _dir.z * dist);
   const b = G.level.bounds;
-  _v.x = clamp(_v.x, b.minX - 1.2, b.maxX + 1.2); _v.z = clamp(_v.z, b.minZ - 1.6, b.maxZ + 1.6);   // stay in front of the building facades _v.y = Math.max(CFG.camMinY, _v.y);
+  const pad = G.level.camPad;
+  _v.x = clamp(_v.x, b.minX - pad.x, b.maxX + pad.x); _v.z = clamp(_v.z, b.minZ - pad.z, b.maxZ + pad.z);   // stay in front of the building facades _v.y = Math.max(CFG.camMinY, _v.y);
+  if (mode === 'intro') {
+    // Fly in from a high overview down to the over-the-shoulder view
+    const k = THREE.MathUtils.smootherstep(introT / INTRO_TIME, 0, 1);
+    _v2.set(clamp(p.pos.x + sy * 9, b.minX - pad.x, b.maxX + pad.x), 13, clamp(p.pos.z + cy * 9, b.minZ - pad.z, b.maxZ + pad.z));
+    introCam.position.copy(_v2); introCam.lookAt(p.pos.x, 1, p.pos.z);
+    _qB.setFromEuler(_euler.set(p.pitch, p.yaw, 0, 'YXZ'));
+    camPos.copy(_v2).lerp(_v, k);
+    camera.position.copy(camPos);
+    camera.quaternion.slerpQuaternions(introCam.quaternion, _qB, k);
+    return;
+  }
   camPos.lerp(_v, snap ? 1 : 1 - Math.exp(-22 * dt));
   camera.position.copy(camPos);
   if (fx.shake > 0) {
@@ -697,6 +794,7 @@ function update(dt) {
   if (mode === 'playing') {
     updateWaves(dt);
     updatePickups(dt);
+    updateSlimes(dt);
     if (combo.n > 0) { combo.t -= dt; if (combo.t <= 0) combo.n = 0; }
     if (megaPending > 0) {
       megaPending -= dt;
@@ -711,6 +809,14 @@ function update(dt) {
       hud.show('gameover');
     }
   }
+  if (mode === 'intro') {
+    introT += dt;
+    if (introT >= INTRO_TIME) { mode = 'playing'; updateLockHint(); }
+  } else if (mode === 'travel') {
+    travelT += dt;
+    if (travelT > 0.45) hud.$('iris').classList.add('closed');
+    if (travelT >= 1.3) { loadLevel(levelIdx + 1); beginEncounter(); updateCamera(0, true); }
+  }
   fx.update(dt);
   updateCamera(dt);
 
@@ -719,27 +825,29 @@ function update(dt) {
   const nextAt = combo.n < 3 ? 3 : combo.n < 5 ? 5 : Math.ceil((combo.n + 1) / 10) * 10;
   const buffs = [];
   if (p.rapidT > 0) buffs.push(`⚡ RAPID FIRE ${Math.ceil(p.rapidT)}s`);
+  if (p.slowT > 0) buffs.push('🟣 SLIMED — slowed');
   if (p.tripleT > 0) buffs.push(`🔱 TRIPLE SHOT ${Math.ceil(p.tripleT)}s`);
   if (p.powerT > 0) buffs.push(`💥 POWER SOAKER ${Math.ceil(p.powerT)}s`);
   hud.update({
     hp: p.hp, maxHp: p.maxHp, ammo: p.ammo, maxAmmo: p.maxAmmo,
     reloading: p.reloadT > 0, reloadFrac: 1 - p.reloadT / CFG.reloadTime, rapid: p.rapidT > 0,
     kills: stats.kills, coins: stats.coins, xp: stats.xp,
-    locNum: G.level.index, locName: G.level.name, wave: Math.max(1, wave.idx + 1), waveMax: WAVES.length, left,
+    locNum: G.level.index, locName: G.level.name, wave: Math.max(1, wave.idx + 1), waveMax: G.level.waves.length, left,
     combo: combo.n, comboFrac: combo.t / CFG.comboWindow,
     comboNext: nextAt === 3 ? 'x3 → bonus coins' : nextAt === 5 ? 'x5 → RAPID FIRE' : `x${nextAt} → MEGA SPLASH`,
     qFrac: 1 - Math.max(0, p.specialCd) / CFG.specialCooldown, dodgeFrac: 1 - Math.max(0, p.dodgeCd) / CFG.dodgeCooldown,
     onTarget, buffs,
-    crosshair: mode === 'playing' && !p.dead && (aiming || p.aimT > 0),   // only while aiming or shooting
+    crosshair: mode === 'playing' && !p.dead && (aiming || p.aimT > 0 || touch.enabled),   // only while aiming or shooting
   });
 }
 
+const ACTIVE = { playing: 1, victory: 1, dying: 1, intro: 1, travel: 1 };   // modes in which the world simulates
 let last = 0;
 function tick(now) {
   requestAnimationFrame(tick);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (mode === 'playing' || mode === 'victory' || mode === 'dying') update(dt);
+  if (ACTIVE[mode]) update(dt);
   else if (mode === 'title' || mode === 'results' || mode === 'gameover') {
     // keep the scene alive behind menus
     victoryT += dt;
@@ -751,9 +859,12 @@ function tick(now) {
   renderer.render(scene, camera);
 }
 // Manual stepping hook for automated tests (advances the simulation without waiting for frames).
-window.game.step = (seconds, dt = 1 / 60) => { for (let t = 0; t < seconds; t += dt) if (mode === 'playing' || mode === 'victory' || mode === 'dying') update(dt); renderer.render(scene, camera); };
+window.game.step = (seconds, dt = 1 / 60) => { for (let t = 0; t < seconds; t += dt) if (ACTIVE[mode]) update(dt); renderer.render(scene, camera); };
 window.game.setFiring = v => { firing = v; };
 window.game.pickups = pickups;
+window.game.touch = touch;
+Object.defineProperty(window.game, 'levelIdx', { get: () => levelIdx });
+window.game.loadLevel = i => { loadLevel(i); beginEncounter(); };
 window.game.spawnPickupAt = (type, x, z) => { const k = new Pickup(scene, type, x, z); pickups.push(k); return k; };
 
 boot().catch(err => {

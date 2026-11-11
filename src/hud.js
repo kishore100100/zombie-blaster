@@ -22,6 +22,7 @@ export const hud = {
     text('comboNum', s.combo); width('comboFill', s.comboFrac); text('comboNext', s.comboNext);
     toggle('combo', 'off', s.combo < 1);
     width('qFill', s.qFrac); toggle('abilQ', 'cd', s.qFrac < 1);
+    width('tSpecialFill', s.qFrac); toggle('tSpecial', 'cd', s.qFrac < 1);
     width('shiftFill', s.dodgeFrac); toggle('abilShift', 'cd', s.dodgeFrac < 1);
     toggle('crosshair', 'hot', s.onTarget);
     toggle('crosshair', 'show', s.crosshair);

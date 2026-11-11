@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Zombie Blaster</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
@@ -18,6 +19,14 @@
 <canvas id="game"></canvas>
 
 <div id="hud" class="hidden">
+  <div id="touch">
+    <div id="stickBase"><div id="stickKnob"></div></div>
+    <button class="tbtn fire" data-act="fire">FIRE</button>
+    <button class="tbtn jump" data-act="jump">JUMP</button>
+    <button class="tbtn dodge" data-act="dodge">DODGE</button>
+    <button class="tbtn special" id="tSpecial" data-act="special">SPLASH<i id="tSpecialFill"></i></button>
+    <button class="tbtn reload" data-act="reload">RELOAD</button>
+  </div>
   <div class="panel tl">
     <div class="row"><span class="ico">❤</span><div class="bar hp"><i id="hpFill"></i><b id="hpText">100</b></div></div>
     <div class="row"><span class="ico">💧</span><div class="bar ammo"><i id="ammoFill"></i><b id="ammoText">30</b></div></div>
@@ -71,7 +80,7 @@
 <div id="title" class="overlay hidden">
   <h1 class="logo">ZOMBIE <span>BLASTER</span></h1>
   <p class="tag">Chapter 1 — The Outbreak</p>
-  <div class="controls">
+  <div class="controls desk-only">
     <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div>
     <div><kbd>Mouse</kbd> Look</div>
     <div><kbd>Left click</kbd> Shoot</div>
@@ -83,7 +92,13 @@
     <div><kbd>Q</kbd> Super Splash</div>
     <div><kbd>Esc</kbd> / <kbd>P</kbd> Pause</div>
   </div>
-  <button class="btn" id="btnPlay">CLICK TO PLAY</button>
+  <div class="controls touch-only">
+    <div>👈 <b>Left thumb</b> — drag to move (push far to sprint)</div>
+    <div>👉 <b>Right thumb</b> — drag to look around</div>
+    <div>💦 <b>FIRE</b> — hold to shoot, drag to aim while firing</div>
+    <div>Buttons — Jump · Dodge · Super Splash · Reload</div>
+  </div>
+  <button class="btn" id="btnPlay">PLAY</button>
 </div>
 
 <div id="pause" class="overlay hidden">
@@ -121,12 +136,12 @@
 </div>
 
 <div id="results" class="overlay hidden">
-  <h2>ENCOUNTER CLEAR!</h2>
+  <h2 id="resTitle">ENCOUNTER CLEAR!</h2>
   <div class="stars" id="stars"></div>
   <table class="rtable" id="rtable"></table>
   <div class="rewards" id="rewards"></div>
-  <p class="note">Next stop: the Shopping Mall (coming in the next build)</p>
-  <button class="btn" id="btnAgain">PLAY AGAIN</button>
+  <p class="note" id="resNote"></p>
+  <button class="btn" id="btnAgain">NEXT LOCATION ▶</button>
 </div>
 
 <div id="gameover" class="overlay hidden">
@@ -134,6 +149,9 @@
   <p id="goText"></p>
   <button class="btn" id="btnRetry">TRY AGAIN</button>
 </div>
+
+<div id="iris" ><i></i><span id="travelText"></span></div>
+<div id="rotate"><div>📱↻</div>Turn your phone sideways to play</div>
 
 <script type="module" src="src/main.js"></script>
 </body>

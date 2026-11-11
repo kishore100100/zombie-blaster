@@ -2,7 +2,9 @@
 
 A colourful, cartoon-style 3D arcade zombie shooter that runs in the browser. Soak funny, non-scary zombies with a water blaster, chain combos and grab power-ups.
 
-This is an early prototype: one encounter (the Abandoned Street) with three waves.
+This is an early prototype of Chapter 1, The Outbreak: three connected locations (Abandoned Street, Shopping Mall, Parking Lot), each with three waves. It plays with keyboard and mouse, or with touch controls on a phone held sideways.
+
+**Play it:** https://kishore100100.github.io/zombie-blaster/
 
 ## Controls
 
@@ -18,6 +20,8 @@ This is an early prototype: one encounter (the Abandoned Street) with three wave
 | R | Reload |
 | Q | Super Splash |
 | Esc / P | Pause |
+
+On a phone or tablet: drag with the left thumb to move (push far to sprint), drag with the right thumb to look, and use the on-screen Fire, Jump, Dodge, Splash and Reload buttons.
 
 Walk into the glowing gems to collect power-ups: Triple Shot, Rapid Fire, Power Soaker, Mega Freeze and Fresh Water.
 

@@ -10,7 +10,7 @@ export const ZTYPES = {
   brute: { label: 'Brute', model: 'zWarrior', height: 3.1, radius: 0.95, hp: 150, speed: 1.15, dmg: 22, range: 2.3, tint: 0x55c9a0, eyes: 0xff5a5a,
     walk: 'Walking_A', walkSpeed: 0.7, attack: 'Unarmed_Melee_Attack_Kick', atkSpeed: 0.7, wobble: 0.25, wobbleFreq: 0.8, stagger: 0, coins: 25, xp: 50 },
   goozer: { label: 'Goozer', model: 'zMage', height: 2.0, radius: 0.55, hp: 45, speed: 1.9, dmg: 10, range: 1.5, tint: 0xc77dff, eyes: 0x8dffb0,
-    walk: 'Walking_B', walkSpeed: 1.0, attack: 'Unarmed_Melee_Attack_Punch_A', atkSpeed: 0.9, wobble: 0.6, wobbleFreq: 1.6, stagger: 0.3, coins: 12, xp: 25 },
+    walk: 'Walking_B', walkSpeed: 1.0, attack: 'Unarmed_Melee_Attack_Punch_A', atkSpeed: 0.9, wobble: 0.6, wobbleFreq: 1.6, stagger: 0.3, coins: 12, xp: 25, slime: true },
 };
 
 const barGeo = new THREE.PlaneGeometry(1, 1);
@@ -33,7 +33,8 @@ export class Zombie {
     this.pos = obj.position;
     this.pos.set(x, 0, z);
     this.height = T.height; this.radius = T.radius;
-    this.hp = T.hp; this.alive = true; this.gone = false;
+    this.hp = this.maxHp = Math.round(T.hp * (G.level.hpMult || 1)); this.alive = true;
+    this.slimeT = 0.8; this.gone = false;
     this.kb = new THREE.Vector3();
     this.flash = 0; this.squash = 0; this.phase = Math.random() * Math.PI * 2;
     this.heading = Math.atan2(G.player.pos.x - x, G.player.pos.z - z);
@@ -67,7 +68,7 @@ export class Zombie {
     this.flash = 1; this.squash = 1;
     this.kb.x += dirX * (this.T.stagger ? 3.5 : 1); this.kb.z += dirZ * (this.T.stagger ? 3.5 : 1);
     this.bar.visible = true;
-    const f = Math.max(0, this.hp / this.T.hp);
+    const f = Math.max(0, this.hp / this.maxHp);
     this.fill.scale.x = Math.max(0.001, this.barW * f);
     this.fill.position.x = -this.barW * (1 - f) / 2;
     this.fill.material.color.setHSL(f * 0.33, 0.9, 0.6);
@@ -134,9 +135,20 @@ export class Zombie {
         const d2 = ex * ex + ez * ez;
         if (d2 < R * R && d2 > 1e-5) { const d = Math.sqrt(d2), push = (R - d) / R * 1.8; mx += ex / d * push; mz += ez / d * push; }
       }
+      if (this.detourT > 0) {       // blocked by a prop a moment ago: walk around it instead of pushing into it
+        this.detourT -= dt;
+        const a = this.detourDir * 1.3, c = Math.cos(a), s = Math.sin(a);
+        const nx = mx * c + mz * s, nz = -mx * s + mz * c;
+        mx = nx; mz = nz;
+      }
       const len = Math.hypot(mx, mz) || 1;
       mx /= len; mz /= len;
+      this.fromX = pos.x; this.fromZ = pos.z; this.stepLen = T.speed * dt;
       pos.x += mx * T.speed * dt; pos.z += mz * T.speed * dt;
+      if (T.slime) {            // Goozers leave a trail of slowing slime
+        this.slimeT -= dt;
+        if (this.slimeT <= 0) { this.slimeT = 1.1; G.dropSlime(pos.x, pos.z); }
+      }
       this.heading = lerpAngle(this.heading, Math.atan2(mx, mz), 1 - Math.exp(-8 * dt));
       if (dist < T.range && !p.dead) {
         this.setState('attack'); this.hitDone = false;
@@ -173,6 +185,16 @@ export class Zombie {
       if (dist < R) { pos.x = p.pos.x - dx / dist * R; pos.z = p.pos.z - dz / dist * R; }
       const b = G.level.bounds;
       pos.x = THREE.MathUtils.clamp(pos.x, b.minX, b.maxX); pos.z = THREE.MathUtils.clamp(pos.z, b.minZ, b.maxZ);
+      if (this.state === 'chase' && this.stepLen && !frozen) {
+        // Notice when props stop us from making progress and take a detour
+        const made = Math.hypot(pos.x - this.fromX, pos.z - this.fromZ);
+        this.stuckT = made < this.stepLen * 0.4 ? (this.stuckT || 0) + dt : Math.max(0, (this.stuckT || 0) - dt * 0.5);
+        if (this.stuckT > 0.3 && !(this.detourT > 0)) {
+          this.detourDir = this.detourDir && Math.random() < 0.7 ? this.detourDir : (Math.random() < 0.5 ? 1 : -1);
+          this.detourT = 1.2; this.stuckT = 0;
+        }
+        this.stepLen = 0;
+      }
     }
 
     const s = this.baseScale;
