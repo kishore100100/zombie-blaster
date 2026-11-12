@@ -189,3 +189,41 @@ body.touch #lockHint { display: none !important; }
   .menu { padding: 12px 18px; gap: 8px; } .menucol { gap: 6px; } .menucol .btn.alt { font-size: 14px; padding: 6px 16px; }
   .tbtn.fire { width: 84px; height: 84px; bottom: 18px; } .tbtn.special { bottom: 116px; } .tbtn.reload { bottom: 190px; }
 }
+
+/* ---------- Boss health bar ---------- */
+#bossBar { position: absolute; left: 50%; top: 74px; transform: translateX(-50%); width: min(520px, 62vw); text-align: center; }
+#bossName { font-size: 18px; font-weight: 700; letter-spacing: 3px; color: #ff9ecb; -webkit-text-stroke: 1px #1c2248; }
+.bbar { height: 18px; margin-top: 3px; background: rgba(10, 14, 40, .75); border: 3px solid #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 0 rgba(20, 26, 56, .35); }
+.bbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff4d8d, #ff9ecb); transition: width .15s ease-out; }
+#bossBar.weak .bbar { border-color: #ffe066; } #bossBar.weak .bbar i { background: linear-gradient(90deg, #ffa94d, #ffe066); }
+@media (max-height: 480px) { #bossBar { top: 44px; width: 40vw; } #bossName { font-size: 12px; letter-spacing: 2px; } .bbar { height: 11px; border-width: 2px; } }
+
+/* ---------- Laboratory ---------- */
+.labmenu { min-width: min(760px, 94vw); max-width: 94vw; }
+.wallet { display: flex; gap: 14px; font-size: 18px; }
+.wallet span { background: rgba(10, 14, 40, .6); border: 3px solid #ffe066; border-radius: 12px; padding: 5px 14px; }
+.wallet b { color: #ffe066; }
+.labcols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; width: 100%; text-align: left; }
+.labcols h3 { font-size: 15px; letter-spacing: 2px; color: #8be9ff; margin-bottom: 6px; text-transform: uppercase; }
+.labrow { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; background: rgba(10, 14, 40, .55); border-radius: 12px; padding: 7px 10px; margin-bottom: 6px; }
+.lico { font-size: 24px; text-align: center; }
+.ltxt b { display: block; font-size: 16px; } .ltxt small { display: block; font-size: 12px; opacity: .85; }
+.pips { display: flex; gap: 4px; margin-top: 4px; } .pips i { width: 18px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .25); } .pips i.on { background: #7dff6a; }
+.buy { cursor: pointer; font: 700 15px 'Fredoka', sans-serif; color: #3b2300; background: linear-gradient(#ffe066, #ffa94d); border: 3px solid #fff; border-radius: 12px; padding: 7px 12px; min-width: 86px; box-shadow: 0 4px 0 #b85c00; }
+.buy.goo { background: linear-gradient(#c8ffb0, #7dff6a); box-shadow: 0 4px 0 #2f9e44; color: #0b3d14; }
+.buy:disabled { cursor: default; filter: grayscale(.8); opacity: .55; box-shadow: none; }
+.buy:not(:disabled):active { transform: translateY(3px); box-shadow: none; }
+.labnote { font-size: 12px; opacity: .8; margin-top: 4px; }
+@media (max-width: 700px) { .labcols { grid-template-columns: 1fr; } }
+@media (max-height: 480px) {
+  .labmenu { padding: 8px 14px; gap: 6px; } .labmenu h2 { font-size: 24px !important; }
+  .wallet { font-size: 13px; } .labrow { padding: 3px 8px; margin-bottom: 3px; grid-template-columns: 24px 1fr auto; } .lico { font-size: 16px; }
+  .ltxt b { font-size: 12px; } .ltxt small { display: none; } .pips { margin-top: 2px; } .buy { font-size: 12px; padding: 4px 8px; min-width: 66px; }
+  .labcols h3 { font-size: 11px; margin-bottom: 3px; } .labnote { display: none; }
+}
+@media (max-height: 480px) {
+  .labmenu .btn { font-size: 15px; padding: 5px 22px; box-shadow: 0 4px 0 #b85c00; }
+  .labrow { padding: 2px 8px; margin-bottom: 2px; }
+  .pips i { height: 4px; }
+  #bossBar { top: 48px; }
+}

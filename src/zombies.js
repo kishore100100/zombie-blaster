@@ -8,12 +8,14 @@ export const ZTYPES = {
   runner: { label: 'Runner', model: 'zRogue', height: 1.7, radius: 0.48, hp: 20, speed: 4.4, dmg: 8, range: 1.4, tint: 0xd7f25a, eyes: 0xff8a3d,
     walk: 'Running_C', walkSpeed: 1.25, attack: 'Unarmed_Melee_Attack_Punch_B', atkSpeed: 1.3, wobble: 0.8, wobbleFreq: 2.6, stagger: 0.22, coins: 8, xp: 15 },
   brute: { label: 'Brute', model: 'zWarrior', height: 3.1, radius: 0.95, hp: 150, speed: 1.15, dmg: 22, range: 2.3, tint: 0x55c9a0, eyes: 0xff5a5a,
-    walk: 'Walking_A', walkSpeed: 0.7, attack: 'Unarmed_Melee_Attack_Kick', atkSpeed: 0.7, wobble: 0.25, wobbleFreq: 0.8, stagger: 0, coins: 25, xp: 50 },
+    walk: 'Walking_A', walkSpeed: 0.7, attack: 'Unarmed_Melee_Attack_Kick', atkSpeed: 0.7, wobble: 0.25, wobbleFreq: 0.8, stagger: 0, coins: 25, xp: 50, goo: 3 },
   goozer: { label: 'Goozer', model: 'zMage', height: 2.0, radius: 0.55, hp: 45, speed: 1.9, dmg: 10, range: 1.5, tint: 0xc77dff, eyes: 0x8dffb0,
-    walk: 'Walking_B', walkSpeed: 1.0, attack: 'Unarmed_Melee_Attack_Punch_A', atkSpeed: 0.9, wobble: 0.6, wobbleFreq: 1.6, stagger: 0.3, coins: 12, xp: 25, slime: true },
+    walk: 'Walking_B', walkSpeed: 1.0, attack: 'Unarmed_Melee_Attack_Punch_A', atkSpeed: 0.9, wobble: 0.6, wobbleFreq: 1.6, stagger: 0.3, coins: 12, xp: 25, goo: 2, slime: true },
 };
 
 const barGeo = new THREE.PlaneGeometry(1, 1);
+const bubbleGeo = new THREE.SphereGeometry(1, 20, 14);
+const bubbleMat = new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.38, roughness: 0.05, depthWrite: false });
 const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
 
 export class Zombie {
@@ -89,10 +91,27 @@ export class Zombie {
   party() { if (this.alive && this.state !== 'party') { this.setState('party'); this.anim.play('Cheer', { fade: 0.25 }); } }
 
   /** Encase the zombie in ice: it stops moving and attacking but can still be splashed. */
-  freeze(seconds) {
+  /** kind: 'ice' (frozen solid), 'zap' (electric stun) or 'bubble' (floats helplessly in a bubble). */
+  freeze(seconds, kind = 'ice') {
     if (!this.alive) return;
     this.frozenT = Math.max(this.frozenT || 0, seconds);
-    for (const m of this.mats) m.color.set(0xa8ecff);
+    this.stunKind = kind;
+    for (const m of this.mats) m.color.set(kind === 'zap' ? 0xfff27a : kind === 'bubble' ? 0xd6f3ff : 0xa8ecff);
+    if (kind === 'bubble' && !this.bubble) {
+      this.bubble = new THREE.Mesh(bubbleGeo, bubbleMat);
+      this.bubble.scale.setScalar(this.height * 0.72);
+      this.G.scene.add(this.bubble);
+    }
+  }
+
+  thaw() {
+    this.frozenT = 0;
+    for (const m of this.mats) m.color.set(this.T.tint);
+    this.pos.y = 0; this.obj.rotation.z = 0;
+    if (this.bubble) {
+      this.G.scene.remove(this.bubble); this.bubble = null;
+      this.G.fx.burst(this.pos.clone().setY(this.height * 0.5), 0xd6f3ff, 12, 3, 3, 1);
+    }
   }
 
   update(dt) {
@@ -100,8 +119,14 @@ export class Zombie {
     let frozen = this.alive && this.frozenT > 0;
     if (frozen) {
       this.frozenT -= dt;
-      if (this.frozenT <= 0) { frozen = false; for (const m of this.mats) m.color.set(T.tint); this.squash = 1; }
-    } else if (this.frozenT > 0) { this.frozenT = 0; for (const m of this.mats) m.color.set(T.tint); }   // defeated while frozen
+      if (this.frozenT <= 0) { frozen = false; this.thaw(); this.squash = 1; }
+      else if (this.stunKind === 'bubble') {
+        pos.y += (1.3 + Math.sin(G.time * 3 + this.phase) * 0.25 - pos.y) * (1 - Math.exp(-4 * dt));
+        this.obj.rotation.z = Math.sin(G.time * 2 + this.phase) * 0.25;
+        this.bubble.position.set(pos.x, pos.y + this.height * 0.5, pos.z);
+      } else if (this.stunKind === 'zap') this.obj.rotation.z = (Math.random() - 0.5) * 0.18;
+    } else if (this.frozenT > 0 || this.bubble) this.thaw();   // defeated while stunned
+    if (this.slowT > 0) this.slowT -= dt;
     if (!frozen) { this.t += dt; this.anim.update(dt); }
 
     if (this.flash > 0) {
@@ -143,8 +168,9 @@ export class Zombie {
       }
       const len = Math.hypot(mx, mz) || 1;
       mx /= len; mz /= len;
-      this.fromX = pos.x; this.fromZ = pos.z; this.stepLen = T.speed * dt;
-      pos.x += mx * T.speed * dt; pos.z += mz * T.speed * dt;
+      const speed = T.speed * (this.slowT > 0 ? 0.5 : 1);      // Sticky Shots slow them down
+      this.fromX = pos.x; this.fromZ = pos.z; this.stepLen = speed * dt;
+      pos.x += mx * speed * dt; pos.z += mz * speed * dt;
       if (T.slime) {            // Goozers leave a trail of slowing slime
         this.slimeT -= dt;
         if (this.slimeT <= 0) { this.slimeT = 1.1; G.dropSlime(pos.x, pos.z); }
@@ -208,6 +234,7 @@ export class Zombie {
   dispose() {
     this.G.scene.remove(this.obj);
     this.G.scene.remove(this.bar);
+    if (this.bubble) this.G.scene.remove(this.bubble);
     this.obj.traverse(o => { if (o.isMesh) o.material.dispose(); });
     this.bar.children.forEach(c => c.material.dispose());
   }

@@ -379,9 +379,171 @@ function buildParking(scene) {
   };
 }
 
+// ---------- 4 · Supermarket ----------
+function buildMarket(scene) {
+  const group = new THREE.Group(); scene.add(group);
+  const K = kit(group);
+  const wall = (x1, z1, x2, z2, r, h) => {      // a row of circles = a long solid obstacle
+    const len = Math.hypot(x2 - x1, z2 - z1), n = Math.max(1, Math.ceil(len / (r * 1.2)));
+    for (let i = 0; i <= n; i++) K.colliders.push({ x: x1 + (x2 - x1) * i / n, z: z1 + (z2 - z1) * i / n, r, h });
+  };
+
+  ground(200, 200, mat(0xdfe6f5), -0.02, group);
+  const tile = canvasTexture(256, 256, (g, w, h) => {
+    g.fillStyle = '#f7fbff'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#cfe6ff'; g.fillRect(0, 0, w / 2, h / 2); g.fillRect(w / 2, h / 2, w / 2, h / 2);
+    g.strokeStyle = 'rgba(90,120,170,.25)'; g.lineWidth = 3; g.strokeRect(0, 0, w / 2, h / 2); g.strokeRect(w / 2, h / 2, w / 2, h / 2);
+  });
+  tile.wrapS = tile.wrapT = THREE.RepeatWrapping; tile.repeat.set(10, 7);
+  ground(40, 28, new THREE.MeshStandardMaterial({ map: tile, roughness: 0.5 }), 0, group);
+
+  // Walls with a red band, like the Mega Mart outside
+  const wallMat = mat(0xfff4e2), band = mat(0xff5a4d);
+  box(41, 7, 1, wallMat, 0, 3.5, -14.2, group); box(41.1, 0.9, 1.1, band, 0, 5.4, -14.2, group);
+  box(1, 7, 29, wallMat, -20, 3.5, 0, group); box(1.1, 0.9, 29.1, band, -20, 5.4, 0, group);
+  box(1, 7, 29, wallMat, 20, 3.5, 0, group); box(1.1, 0.9, 29.1, band, 20, 5.4, 0, group);
+  for (const x of [-12.5, 12.5]) { box(15, 7, 1, wallMat, x, 3.5, 14.2, group); box(15.1, 0.9, 1.1, band, x, 5.4, 14.2, group); }
+  box(10, 2.4, 1, wallMat, 0, 5.8, 14.2, group);                                   // above the entrance
+  box(10, 4.4, 0.2, mat(0xcff1ff, { roughness: 0.2, transparent: true, opacity: 0.45 }), 0, 2.2, 14.3, group);
+
+  // Aisle shelves full of colourful products (one instanced mesh for all the products)
+  const shelfXs = [-10.5, -3.5, 3.5, 10.5], names = ['SNACKS', 'CEREAL', 'DRINKS', 'SWEETS'];
+  const colors = [0xff6b6b, 0xffd43b, 0x69db7c, 0x4dabf7, 0xda77f2, 0xff922b, 0x38d9a9, 0xf783ac];
+  const perShelf = 2 * 3 * 12;
+  const products = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.52, 0.56), mat(0xffffff, { roughness: 0.6 }), shelfXs.length * perShelf);
+  const m4 = new THREE.Matrix4(), col = new THREE.Color();
+  let pi = 0;
+  shelfXs.forEach((x, si) => {
+    const body = box(1.3, 2.7, 9.2, mat(0xe9ecf5), x, 1.35, -2.5, group);
+    K.occluders.push(body);
+    box(1.5, 0.12, 9.4, mat(0x8d99ae), x, 2.76, -2.5, group);
+    for (const side of [-1, 1]) for (let lv = 0; lv < 3; lv++) for (let i = 0; i < 12; i++) {
+      m4.makeTranslation(x + side * 0.7, 0.5 + lv * 0.85, -6.6 + i * 0.75);
+      products.setMatrixAt(pi, m4);
+      products.setColorAt(pi, col.set(colors[(i * 3 + lv * 5 + si * 2 + (side > 0 ? 1 : 0)) % colors.length]));
+      pi++;
+    }
+    wall(x, -6.6, x, 1.6, 0.9, 2.8);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshBasicMaterial({ map: signTexture(names[si], '#ffffff', '#ff5a4d'), side: THREE.DoubleSide }));
+    sign.position.set(x, 4.6, 2.2); group.add(sign);
+    box(0.05, 1.6, 0.05, mat(0x8d99ae), x, 5.8, 2.2, group);
+  });
+  products.castShadow = true;
+  group.add(products);
+
+  // Checkouts near the entrance
+  for (const x of shelfXs) {
+    const c = new THREE.Group();
+    box(1.2, 1.0, 3.2, mat(0xced4da), 0, 0.5, 0, c); box(0.9, 0.06, 2.4, mat(0x343a40), 0, 1.03, -0.2, c);
+    box(0.6, 0.5, 0.5, mat(0x4dabf7), 0, 1.3, 1.2, c);
+    c.position.set(x, 0, 7.4); group.add(c); c.traverse(o => { if (o.isMesh) K.occluders.push(o); });
+    wall(x, 6.2, x, 8.6, 0.85, 1.6);
+  }
+  // Fruit stands and freezers
+  const fruit = [0xff6b6b, 0xffa94d, 0xffd43b, 0x69db7c];
+  for (const [x, z] of [[-16, 3.5], [16, 3.5]]) {
+    const s = new THREE.Group();
+    box(2.4, 0.9, 2.4, mat(0xd9a066), 0, 0.45, 0, s);
+    for (let i = 0; i < 16; i++) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), mat(fruit[i % 4])); b.position.set(-0.8 + (i % 4) * 0.53, 1.05, -0.8 + ((i / 4) | 0) * 0.53); s.add(b); }
+    K.solid(s, x, z, 1.6, 1.3);
+  }
+  for (const x of [-13, -4.5, 4.5, 13]) { box(6.5, 1.2, 1.3, mat(0xcff1ff, { roughness: 0.2 }), x, 0.6, -13.1, group); box(6.5, 0.1, 1.3, mat(0x4dabf7), x, 1.25, -13.1, group); }
+  for (const [x, z, rot] of [[-16.5, -8, 0.3], [0, 3.6, 0.6], [16.5, -8.5, 1.0]]) K.crate(x, z, rot);
+
+  // Strip lights
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  for (const x of [-14, -7, 0, 7, 14]) for (const z of [-7, 1, 9]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 5), lightMat); l.position.set(x, 7.6, z); group.add(l); }
+
+  const spawns = pts([[-14, -11.3], [-7, -11.3], [0, -11.3], [7, -11.3], [14, -11.3], [-17.3, -4], [17.3, -4], [17.3, 9]]);
+  K.spawnMarkers(spawns, 0x5ad8ff);
+
+  return {
+    name: 'Supermarket', group, colliders: K.colliders, occluders: K.occluders, spawns,
+    bounds: { minX: -18.6, maxX: 18.6, minZ: -12.4, maxZ: 12.6 }, camPad: { x: 0.5, z: 0.7 },
+    pickupSpots: pts([[-14, -3], [-7, -4], [0, -4], [7, -4], [14, -3], [-7, 4.2], [7, 4.2], [-14, 9], [14, 9.5], [0, 7.5]]),
+    start: { x: 0, z: 9.2 }, startYaw: 0, exitYaw: Math.PI, hpMult: 1.45,
+    waves: [
+      [['walker', 6], ['runner', 3], ['goozer', 2]],
+      [['walker', 5], ['runner', 5], ['goozer', 3], ['brute', 1]],
+      [['walker', 6], ['runner', 5], ['goozer', 3], ['brute', 2]],
+    ],
+    env: { sky: 0xeaf2ff, fog: 0xeaf2ff, fogNear: 55, fogFar: 150, sun: 0xffffff, sunI: 2.0, sunPos: [6, 34, 10], hemiSky: 0xffffff, hemiGround: 0xdfe6f5, hemiI: 2.0 },
+  };
+}
+
+// ---------- 5 · City Square (boss) ----------
+function buildSquare(scene) {
+  const group = new THREE.Group(); scene.add(group);
+  const K = kit(group);
+
+  ground(300, 300, mat(0x7fc96a), -0.02, group);
+  const paving = canvasTexture(256, 256, (g, w, h) => {
+    g.fillStyle = '#e8dccb'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      g.fillStyle = (x + y) % 2 ? '#dccdb6' : '#efe5d6';
+      g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
+    }
+  });
+  paving.wrapS = paving.wrapT = THREE.RepeatWrapping; paving.repeat.set(12, 10);
+  ground(48, 38, new THREE.MeshStandardMaterial({ map: paving, roughness: 0.8 }), 0, group);
+  const ringMesh = new THREE.Mesh(new THREE.RingGeometry(6.4, 7, 64), new THREE.MeshBasicMaterial({ color: 0xff8a2a }));
+  ringMesh.rotation.x = -Math.PI / 2; ringMesh.position.y = 0.012; group.add(ringMesh);
+
+  // City all around
+  const xs = [-27, -18, -9, 0, 9, 18, 27];
+  K.buildingRow(['a', 'd', 'g', 'b', 'e', 'h', 'c'].map(B), xs.filter(x => x), -23.5, 0);
+  K.buildingRow(['e', 'h', 'c', 'f', 'a', 'd', 'g'].map(B), xs, 23.5, Math.PI);
+  const sideKeys = ['f', 'b', 'h', 'c', 'a', 'e', 'd', 'g'].map(B);
+  K.buildingRow(sideKeys, [0, 0, 0, 0, 0, 0, 0, 0], 0, 0);
+  group.children.slice(-8).forEach((b, i) => {
+    const left = i < 4, z = -13.5 + (i % 4) * 9;
+    b.position.set(left ? -28.5 : 28.5, 0, z); b.rotation.y = left ? Math.PI / 2 : -Math.PI / 2;
+  });
+  // Clock tower at the head of the square
+  const tower = new THREE.Group();
+  box(5, 15, 5, mat(0xffe3a3), 0, 7.5, 0, tower); box(6, 1, 6, mat(0xff8a2a), 0, 15.5, 0, tower);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4, 4.5, 4), mat(0xff5a4d)); roof.position.y = 18.2; roof.rotation.y = Math.PI / 4; tower.add(roof);
+  const face = new THREE.Mesh(new THREE.CircleGeometry(1.7, 28), new THREE.MeshBasicMaterial({ color: 0xffffff })); face.position.set(0, 12, 2.52); tower.add(face);
+  box(0.16, 1.3, 0.05, mat(0x343a40), 0, 12.5, 2.56, tower); const hand = box(0.16, 0.9, 0.05, mat(0x343a40), 0.35, 12.2, 2.56, tower); hand.rotation.z = -1.1;
+  tower.position.set(0, 0, -22.5); group.add(tower);
+
+  // Stone pillars = cover from the boss
+  for (const [x, z] of [[-9.5, -5.5], [9.5, -5.5], [-9.5, 6.5], [9.5, 6.5]]) {
+    const p = new THREE.Group();
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.05, 4.6, 14), mat(0xe9ecf5)); c.position.y = 2.3; c.castShadow = true; p.add(c);
+    box(2.6, 0.5, 2.6, mat(0xced4da), 0, 0.25, 0, p);
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.7, 14, 10), mat(0xffe066, { emissive: 0xffc400, emissiveIntensity: 0.6 })); orb.position.y = 5.2; p.add(orb);
+    K.solid(p, x, z, 1.35, 5);
+  }
+  for (const [x, z] of [[-17.5, -13], [17.5, -13], [-17.5, 13.5], [17.5, 13.5], [-18, 0], [18, 0]]) K.tree(x, z);
+  for (const [x, z, rot] of [[-13, 14.2, 0], [13, 14.2, Math.PI], [-13, -14, 0], [13, -14, Math.PI]]) K.lamp(x, z, rot, 5);
+
+  // Bunting
+  const bulbGeo = new THREE.SphereGeometry(0.18, 8, 6);
+  const bulbMats = [0xff6b6b, 0xffd43b, 0x69db7c, 0x4dabf7, 0xda77f2].map(c => new THREE.MeshBasicMaterial({ color: c }));
+  for (const z of [-12, 12]) for (let i = 0; i <= 30; i++) {
+    const b = new THREE.Mesh(bulbGeo, bulbMats[i % 5]); b.position.set(-21 + i * 1.4, 9.5 - Math.sin(i / 30 * Math.PI) * 2, z); group.add(b);
+  }
+
+  const spawns = pts([[-18, -9], [18, -9], [-18, 9], [18, 9], [-6, -14], [6, 14], [-19, 4], [19, -4]]);
+  K.spawnMarkers(spawns, 0xff6b6b);
+  K.clouds(0xe7dcff);
+
+  return {
+    name: 'City Square', group, colliders: K.colliders, occluders: K.occluders, spawns, boss: true, bossSpawn: { x: 0, z: -4 },
+    bounds: { minX: -20.5, maxX: 20.5, minZ: -15.5, maxZ: 15.5 }, camPad: { x: 1, z: 1 },
+    pickupSpots: pts([[-14, -9], [14, -9], [-14, 10], [14, 10], [0, 12], [0, -12], [-5, 2], [5, 2], [-16, 3], [16, 3]]),
+    start: { x: 0, z: 11 }, startYaw: 0, exitYaw: 0, hpMult: 1.5,
+    waves: [[['boss', 1]]],
+    env: { sky: 0x8f7df2, fog: 0xb3a6f7, fogNear: 45, fogFar: 135, sun: 0xffd6a8, sunI: 2.3, sunPos: [-14, 26, 12], hemiSky: 0xe2dcff, hemiGround: 0x9a8fd6, hemiI: 1.7 },
+  };
+}
+
 /** Chapter 1 - The Outbreak. Levels are built on first use and kept. */
 export const LEVELS = [
   { name: 'Abandoned Street', build: buildStreet },
   { name: 'Shopping Mall', build: buildMall },
   { name: 'Parking Lot', build: buildParking },
+  { name: 'Supermarket', build: buildMarket },
+  { name: 'City Square', build: buildSquare },
 ];

@@ -41,9 +41,12 @@
     <div class="stat"><span>🧟</span><b id="kills">0</b></div>
     <div class="stat"><span>🪙</span><b id="coins">0</b></div>
     <div class="stat"><span>⭐</span><b id="xp">0</b></div>
+    <div class="stat"><span>🧪</span><b id="goo">0</b></div>
   </div>
 
   <button id="btnPause" title="Pause (Esc or P)" aria-label="Pause">❚❚</button>
+
+  <div id="bossBar" class="hidden"><div id="bossName"></div><div class="bbar"><i id="bossFill"></i></div></div>
 
   <div id="crosshair"><i></i></div>
 
@@ -142,6 +145,18 @@
   <div class="rewards" id="rewards"></div>
   <p class="note" id="resNote"></p>
   <button class="btn" id="btnAgain">NEXT LOCATION ▶</button>
+</div>
+
+<div id="lab" class="overlay hidden">
+  <div class="menu labmenu">
+    <h2>🧪 THE LAB</h2>
+    <div class="wallet"><span><b id="labCoins">0</b> 🪙 coins</span><span><b id="labGoo">0</b> 🧪 goo</span></div>
+    <div class="labcols">
+      <div><h3>Blaster upgrades</h3><div id="labUp"></div></div>
+      <div><h3>Crafting</h3><div id="labCraft"></div><p class="labnote">Goo drops from Goozers, Brutes and the occasional soggy zombie.</p></div>
+    </div>
+    <button class="btn" id="btnLabGo">HEAD OUT ▶</button>
+  </div>
 </div>
 
 <div id="gameover" class="overlay hidden">

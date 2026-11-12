@@ -16,7 +16,9 @@ export const hud = {
     text('ammoText', s.reloading ? 'REFILLING' : s.ammo); width('ammoFill', s.reloading ? s.reloadFrac : s.ammo / s.maxAmmo);
     text('ammoBig', s.rapid ? '∞' : s.ammo); text('ammoMax', s.maxAmmo);
     text('wState', s.reloading ? 'REFILLING…' : s.rapid ? 'RAPID FIRE' : '');
-    text('kills', s.kills); text('coins', s.coins); text('xp', s.xp);
+    text('kills', s.kills); text('coins', s.coins); text('xp', s.xp); text('goo', s.goo);
+    toggle('bossBar', 'hidden', !s.boss);
+    if (s.boss) { text('bossName', s.boss.name); width('bossFill', s.boss.frac); toggle('bossBar', 'weak', s.boss.weak); }
     text('locNum', s.locNum); text('locName', s.locName);
     text('waveNum', s.wave); text('waveMax', s.waveMax); text('zLeft', s.left);
     text('comboNum', s.combo); width('comboFill', s.comboFrac); text('comboNext', s.comboNext);

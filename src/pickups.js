@@ -6,6 +6,8 @@ export const POWERUPS = {
   rapid: { label: 'RAPID FIRE', sub: 'Unlimited water, double speed', color: 0xffe066, icon: '⚡', time: 10, weight: 3 },
   power: { label: 'POWER SOAKER', sub: 'Triple damage', color: 0xff5ad1, icon: '💥', time: 15, weight: 3 },
   freeze: { label: 'MEGA FREEZE', sub: 'Nearby zombies frozen solid', color: 0x8be9ff, icon: '❄️', weight: 2 },
+  bubble: { label: 'BUBBLE STORM', sub: 'Nearest zombies trapped in bubbles', color: 0x9be7ff, icon: '🫧', weight: 2 },
+  electric: { label: 'ELECTRIC BLAST', sub: 'Zaps and stuns everything nearby', color: 0xfff27a, icon: '🌩️', weight: 2 },
   heal: { label: 'FRESH WATER', sub: '+40 health', color: 0x7dff6a, icon: '💚', weight: 1 },
 };
 

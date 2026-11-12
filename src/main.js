@@ -7,6 +7,8 @@ import { LEVELS } from './level.js';
 import { touch, initTouch } from './touch.js';
 import { hud } from './hud.js';
 import { Zombie } from './zombies.js';
+import { Boss } from './boss.js';
+import { UPGRADES, RECIPES, newProgress, renderLab } from './lab.js';
 import { Pickup, rollPowerup } from './pickups.js';
 
 // ?nolock lets the game run without pointer lock (used for automated play-testing).
@@ -72,7 +74,7 @@ const player = {
   reloadT: 0, fireT: 0, aimT: 0, dodgeT: 0, dodgeCd: 0, dodgeDir: new THREE.Vector3(), invuln: 0,
   specialCd: 0, rapidT: 0, tripleT: 0, powerT: 0, lockT: 0, recoil: 0, dead: false, model: null, anim: null, blaster: null,
 };
-const stats = { kills: 0, coins: 0, xp: 0, shots: 0, hits: 0, damageTaken: 0, bestCombo: 0, time: 0 };
+const stats = { kills: 0, coins: 0, xp: 0, goo: 0, shots: 0, hits: 0, damageTaken: 0, bestCombo: 0, time: 0 };
 const combo = { n: 0, t: 0 };
 const wave = { idx: -1, queue: [], gap: 0 };
 const projectiles = [];
@@ -89,6 +91,8 @@ const projMatPower = new THREE.MeshBasicMaterial({ color: 0xff7ade });
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _dir = new THREE.Vector3(), _aim = new THREE.Vector3(), _muzzle = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 const camPos = new THREE.Vector3();
+let orbitA0 = 0;
+function startOrbit() { orbitA0 = Math.atan2(camPos.x - player.pos.x, camPos.z - player.pos.z); }
 const introCam = new THREE.PerspectiveCamera(), _qB = new THREE.Quaternion(), _euler = new THREE.Euler();
 const clamp = THREE.MathUtils.clamp;
 
@@ -155,7 +159,7 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyR') startReload();
   }
   if (e.code === 'KeyP' || (e.code === 'Escape' && NOLOCK)) { if (mode === 'playing') pause(); else if (mode === 'paused') resume(); }
-  if ((e.code === 'KeyE' || e.code === 'Enter') && (mode === 'results' || mode === 'gameover')) { if (mode === 'results') nextEncounter(); else retryEncounter(); }
+  if ((e.code === 'KeyE' || e.code === 'Enter') && (mode === 'results' || mode === 'gameover')) { if (mode === 'results') afterResults(); else retryEncounter(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; aiming = false; });
@@ -215,7 +219,43 @@ function unlock() { if (document.pointerLockElement) document.exitPointerLock();
 // ---------- Level flow ----------
 let levelIdx = 0, introT = 0, travelT = 0;
 const INTRO_TIME = 2.2;
-const bank = { coins: 0, xp: 0 };      // coins and XP carried between encounters
+const bank = { coins: 0, xp: 0, goo: 0 };      // coins, XP and goo carried between encounters
+let prog = newProgress();                      // lab upgrades and crafted ammo for this run
+const BASE = { damage: CFG.damage, fireInterval: CFG.fireInterval, maxAmmo: CFG.maxAmmo, maxHp: CFG.maxHp, specialCooldown: CFG.specialCooldown };
+
+function applyUpgrades() {
+  const u = prog.up;
+  CFG.damage = Math.round(BASE.damage * (1 + 0.2 * u.damage));
+  CFG.fireInterval = BASE.fireInterval * Math.pow(0.92, u.rate);
+  player.maxAmmo = BASE.maxAmmo + 6 * u.tank;
+  player.maxHp = BASE.maxHp + 20 * u.health;
+  CFG.specialCooldown = BASE.specialCooldown - 2.5 * u.special;
+}
+
+// ---------- Laboratory ----------
+function openLab() {
+  mode = 'lab';
+  hud.show('results', false);
+  renderLab(prog, bank, hud.$);
+  hud.show('lab');
+}
+hud.$('lab').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  if (b.dataset.buy) {
+    const u = UPGRADES.find(x => x.id === b.dataset.buy), cost = u.costs[prog.up[u.id]];
+    if (cost === undefined || bank.coins < cost) return;
+    bank.coins -= cost; prog.up[u.id]++;
+  } else if (b.dataset.craft) {
+    const r = RECIPES.find(x => x.id === b.dataset.craft);
+    if (prog.crafted[r.id] || bank.goo < r.goo) return;
+    bank.goo -= r.goo; prog.crafted[r.id] = true;
+  } else return;
+  initAudio(); sfx.power();
+  applyUpgrades();
+  renderLab(prog, bank, hud.$);
+});
+hud.$('btnLabGo').onclick = () => { hud.show('lab', false); nextEncounter(); };
 const levelCache = [];
 
 function loadLevel(i) {
@@ -233,7 +273,7 @@ function beginEncounter() {
   initAudio();
   ['title', 'results', 'gameover', 'pause'].forEach(id => hud.show(id, false));
   hud.show('hud');
-  stats.coins = bank.coins; stats.xp = bank.xp;
+  stats.coins = bank.coins; stats.xp = bank.xp; stats.goo = bank.goo;
   resetEncounter();
   mode = 'intro'; introT = 0;
   hud.$('iris').classList.remove('closed');
@@ -243,7 +283,7 @@ function beginEncounter() {
   }
   hud.banner(`${G.level.index} · ${G.level.name.toUpperCase()}`, 'Chapter 1 — The Outbreak');
 }
-function newGame() { bank.coins = bank.xp = 0; loadLevel(0); beginEncounter(); }
+function newGame() { bank.coins = bank.xp = bank.goo = 0; prog = newProgress(); applyUpgrades(); loadLevel(0); beginEncounter(); }
 function retryEncounter() { beginEncounter(); }
 
 /** Run to the exit, iris out, swap the location, iris back in. */
@@ -304,7 +344,8 @@ hud.$('btnQuit').onclick = quitToTitle;
 document.querySelectorAll('[data-back]').forEach(b => { b.onclick = () => menuPage('menuMain'); });
 
 hud.$('btnPlay').onclick = newGame;
-hud.$('btnAgain').onclick = nextEncounter;
+const afterResults = () => { if (levelIdx >= LEVELS.length - 1) newGame(); else openLab(); };
+hud.$('btnAgain').onclick = afterResults;
 hud.$('btnRetry').onclick = retryEncounter;
 hud.$('btnRestartP').onclick = retryEncounter;
 hud.$('btnResume').onclick = resume;
@@ -433,6 +474,13 @@ function onKill(z) {
   combo.n++; combo.t = CFG.comboWindow;
   stats.bestCombo = Math.max(stats.bestCombo, combo.n);
   stats.coins += z.T.coins; stats.xp += z.T.xp;
+  stats.goo += z.T.goo || (Math.random() < 0.25 ? 1 : 0);      // crafting ingredient
+  if (z.isBoss) {
+    hud.banner('BOSS DEFEATED!', 'Big Grumble is all washed up');
+    fx.shake = 1; sfx.victory();
+    wave.queue.length = 0;
+    for (const o of G.zombies) if (o !== z && o.alive) o.damage(99999, 0, 0);   // the rest of the horde gives up
+  }
   _v.set(z.pos.x, z.height + 0.4, z.pos.z);
   fx.popup(_v, POP_WORDS[(Math.random() * POP_WORDS.length) | 0], 'big');
   sfx.combo(combo.n);
@@ -470,7 +518,7 @@ function hurtPlayer(dmg, z) {
   if (p.hp <= 0) {
     p.hp = 0; p.dead = true; firing = false;
     p.anim.playBoth('Death_A', { once: true, fade: 0.1 });
-    mode = 'dying'; victoryT = 0;
+    mode = 'dying'; victoryT = 0; startOrbit();
     sfx.lose();
     for (const o of G.zombies) o.party();
   } else if (p.dodgeT <= 0) {
@@ -575,6 +623,11 @@ function updateProjectiles(dt) {
       const l = Math.sqrt(len2) || 1;
       stats.hits++;
       hit.damage(pr.dmg, dx / l, dz / l);
+      if (prog.crafted.sticky) hit.slowT = 2;
+      if (prog.crafted.splash) {
+        fx.ring(pr.pos, 0x9be7ff, 2.2, 0.25);
+        for (const o of G.zombies) if (o !== hit && o.alive && Math.hypot(o.pos.x - hit.pos.x, o.pos.z - hit.pos.z) < 2.4) o.damage(Math.round(pr.dmg * 0.4), 0, 0);
+      }
       fx.burst(pr.pos, pr.power ? 0xff9ae6 : WATER[(Math.random() * 3) | 0], pr.power ? 16 : 9, 3.5, 3.5, pr.power ? 1.4 : 1);
       _v2.set(pr.pos.x, pr.pos.y + 0.3, pr.pos.z);
       fx.popup(_v2, String(pr.dmg), pr.power ? 'coin' : '');
@@ -604,7 +657,7 @@ function updateWaves(dt) {
     q.delay -= dt;
     if (q.delay <= 0) {
       wave.queue.splice(i, 1);
-      const z = new Zombie(G, q.type, q.x, q.z);
+      const z = q.type === 'boss' ? new Boss(G, G.level.bossSpawn.x, G.level.bossSpawn.z) : new Zombie(G, q.type, q.x, q.z);
       G.zombies.push(z);
       fx.ring(z.pos, 0x9dff5a, 1.8, 0.5);
       _v.set(q.x, 0.3, q.z); fx.burst(_v, 0x9dff5a, 10, 2.5, 5, 1);
@@ -641,6 +694,12 @@ function dropSlime(x, z) {
   slimes.push({ mesh, x, z, life: 7 });
 }
 G.dropSlime = dropSlime;
+/** Extra zombies called in mid-fight (used by the boss). */
+G.spawnMinion = type => {
+  const far = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 7);
+  const s = far[(Math.random() * far.length) | 0] || G.level.spawns[0];
+  wave.queue.push({ type, x: s.x + (Math.random() - 0.5), z: s.z + (Math.random() - 0.5), delay: 0.3 + Math.random() * 1.5 });
+};
 function updateSlimes(dt) {
   const p = player;
   for (let i = slimes.length - 1; i >= 0; i--) {
@@ -671,6 +730,18 @@ function collectPickup(k) {
   if (k.type === 'rapid') p.rapidT = P.time;
   if (k.type === 'power') p.powerT = P.time;
   if (k.type === 'heal') p.hp = Math.min(p.maxHp, p.hp + 40);
+  if (k.type === 'bubble') {
+    const near = G.zombies.filter(z => z.alive).sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos)).slice(0, 6);
+    for (const z of near) z.freeze(5.5, 'bubble');
+    fx.ring(p.pos, 0x9be7ff, 10, 0.6);
+  }
+  if (k.type === 'electric') {
+    fx.ring(p.pos, 0xfff27a, 13, 0.5); fx.ring(p.pos, 0xffffff, 8, 0.35); fx.shake = Math.max(fx.shake, 0.5);
+    for (const z of G.zombies) if (z.alive && Math.hypot(z.pos.x - p.pos.x, z.pos.z - p.pos.z) < 13) {
+      _v.set(z.pos.x, z.height * 0.6, z.pos.z); fx.burst(_v, 0xfff27a, 12, 3, 4, 1);
+      if (!z.damage(15, 0, 0)) z.freeze(3.5, 'zap');
+    }
+  }
   if (k.type === 'freeze') {
     fx.ring(p.pos, 0x8be9ff, 13, 0.6); fx.ring(p.pos, 0xffffff, 9, 0.45);
     for (const z of G.zombies) if (z.alive && Math.hypot(z.pos.x - p.pos.x, z.pos.z - p.pos.z) < 13) {
@@ -699,9 +770,9 @@ function updatePickups(dt) {
 }
 
 function victory() {
-  mode = 'victory'; victoryT = 0; firing = false;
+  mode = 'victory'; victoryT = 0; firing = false; startOrbit();
   player.anim.playBoth('Cheer', { fade: 0.2 });
-  hud.banner('ENCOUNTER CLEAR!');
+  hud.banner(G.level.boss ? 'YOU SAVED THE CITY!' : 'ENCOUNTER CLEAR!');
   sfx.victory();
 }
 
@@ -715,14 +786,14 @@ function showResults() {
   if (acc >= 70) { bonus += 25; rewards.push('Sharpshooter +25 🪙'); }
   if (stats.bestCombo >= 10) { bonus += 25; rewards.push('Combo master +25 🪙'); }
   stats.coins += bonus;
-  bank.coins = stats.coins; bank.xp = stats.xp;
+  bank.coins = stats.coins; bank.xp = stats.xp; bank.goo = stats.goo;
   const last = levelIdx >= LEVELS.length - 1;
-  hud.$('resTitle').textContent = last ? 'CHAPTER CLEAR!' : 'ENCOUNTER CLEAR!';
-  hud.$('resNote').textContent = last ? 'The City Square boss arrives in the next build.' : 'Next stop: ' + LEVELS[levelIdx + 1].name;
-  hud.$('btnAgain').textContent = last ? 'PLAY AGAIN' : 'NEXT LOCATION ▶';
+  hud.$('resTitle').textContent = last ? 'CHAPTER COMPLETE!' : 'ENCOUNTER CLEAR!';
+  hud.$('resNote').textContent = last ? 'You saved the city! More chapters to come.' : 'Next stop: ' + LEVELS[levelIdx + 1].name;
+  hud.$('btnAgain').textContent = last ? 'PLAY AGAIN' : '🧪 TO THE LAB ▶';
   const stars = 1 + (acc >= 55 ? 1 : 0) + (stats.damageTaken <= 30 ? 1 : 0);
   const m = Math.floor(stats.time / 60), s = Math.floor(stats.time % 60);
-  rewards.unshift(`${stats.coins} 🪙 coins`, `${stats.xp} ⭐ XP`);
+  rewards.unshift(`${stats.coins} 🪙 coins`, `${stats.xp} ⭐ XP`, `${stats.goo} 🧪 goo`);
   hud.results({
     stars,
     rows: [['Zombies splashed', stats.kills], ['Accuracy', acc + '%'], ['Best combo', 'x' + stats.bestCombo], ['Damage taken', stats.damageTaken], ['Time', `${m}:${String(s).padStart(2, '0')}`]],
@@ -733,9 +804,9 @@ function showResults() {
 
 function updateCamera(dt, snap = false) {
   const p = player;
-  if (mode === 'victory' || mode === 'dying' || mode === 'results' || mode === 'gameover') {
+  if (mode === 'victory' || mode === 'dying' || mode === 'results' || mode === 'gameover' || mode === 'lab') {
     // Slow orbit around the hunter
-    const a = p.yaw + Math.PI + victoryT * 0.5;
+    const a = orbitA0 + victoryT * 0.5;      // start the orbit from wherever the camera already is
     _v.set(p.pos.x + Math.sin(a) * 4.8, 2.4, p.pos.z + Math.cos(a) * 4.8);
     camPos.lerp(_v, snap ? 1 : 1 - Math.exp(-3 * dt));
     camera.position.copy(camPos);
@@ -824,6 +895,7 @@ function update(dt) {
   const left = wave.queue.length + G.zombies.filter(z => z.alive).length;
   const nextAt = combo.n < 3 ? 3 : combo.n < 5 ? 5 : Math.ceil((combo.n + 1) / 10) * 10;
   const buffs = [];
+  const bossNow = G.zombies.find(z => z.isBoss && z.alive);
   if (p.rapidT > 0) buffs.push(`⚡ RAPID FIRE ${Math.ceil(p.rapidT)}s`);
   if (p.slowT > 0) buffs.push('🟣 SLIMED — slowed');
   if (p.tripleT > 0) buffs.push(`🔱 TRIPLE SHOT ${Math.ceil(p.tripleT)}s`);
@@ -831,7 +903,8 @@ function update(dt) {
   hud.update({
     hp: p.hp, maxHp: p.maxHp, ammo: p.ammo, maxAmmo: p.maxAmmo,
     reloading: p.reloadT > 0, reloadFrac: 1 - p.reloadT / CFG.reloadTime, rapid: p.rapidT > 0,
-    kills: stats.kills, coins: stats.coins, xp: stats.xp,
+    kills: stats.kills, coins: stats.coins, xp: stats.xp, goo: stats.goo,
+    boss: bossNow ? { name: bossNow.T.label, frac: bossNow.hp / bossNow.maxHp, weak: bossNow.dizzy } : null,
     locNum: G.level.index, locName: G.level.name, wave: Math.max(1, wave.idx + 1), waveMax: G.level.waves.length, left,
     combo: combo.n, comboFrac: combo.t / CFG.comboWindow,
     comboNext: nextAt === 3 ? 'x3 → bonus coins' : nextAt === 5 ? 'x5 → RAPID FIRE' : `x${nextAt} → MEGA SPLASH`,
@@ -848,7 +921,7 @@ function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (ACTIVE[mode]) update(dt);
-  else if (mode === 'title' || mode === 'results' || mode === 'gameover') {
+  else if (mode === 'title' || mode === 'results' || mode === 'gameover' || mode === 'lab') {
     // keep the scene alive behind menus
     victoryT += dt;
     player.anim.update(dt);
@@ -863,6 +936,8 @@ window.game.step = (seconds, dt = 1 / 60) => { for (let t = 0; t < seconds; t +=
 window.game.setFiring = v => { firing = v; };
 window.game.pickups = pickups;
 window.game.touch = touch;
+window.game.bank = bank;
+Object.defineProperty(window.game, 'prog', { get: () => prog });
 Object.defineProperty(window.game, 'levelIdx', { get: () => levelIdx });
 window.game.loadLevel = i => { loadLevel(i); beginEncounter(); };
 window.game.spawnPickupAt = (type, x, z) => { const k = new Pickup(scene, type, x, z); pickups.push(k); return k; };
