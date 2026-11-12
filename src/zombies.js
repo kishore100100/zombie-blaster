@@ -19,7 +19,8 @@ const bubbleMat = new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent:
 const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
 
 export class Zombie {
-  constructor(G, type, x, z) {
+  /** entry = { x, z }: start hidden at (x, z) and walk out to the entry point instead of rising from the ground. */
+  constructor(G, type, x, z, entry = null) {
     const T = ZTYPES[type];
     this.G = G; this.T = T; this.type = type;
     const { obj, clips } = spawnSkinned(T.model, T.height);
@@ -42,8 +43,15 @@ export class Zombie {
     this.heading = Math.atan2(G.player.pos.x - x, G.player.pos.z - z);
     obj.rotation.y = this.heading;
     this.anim = new Animator(obj, clips);
-    this.state = 'spawn'; this.t = 0;
-    this.dur = this.anim.play('Spawn_Ground', { once: true, fade: 0 });
+    this.t = 0;
+    if (entry) {
+      this.state = 'enter'; this.entry = entry;
+      this.heading = Math.atan2(entry.x - x, entry.z - z); obj.rotation.y = this.heading;
+      this.anim.play(T.walk, { speed: T.walkSpeed, fade: 0 });
+    } else {
+      this.state = 'spawn';
+      this.dur = this.anim.play('Spawn_Ground', { once: true, fade: 0 });
+    }
     G.scene.add(obj);
 
     // Health bar (shown once damaged)
@@ -75,7 +83,7 @@ export class Zombie {
     this.fill.position.x = -this.barW * (1 - f) / 2;
     this.fill.material.color.setHSL(f * 0.33, 0.9, 0.6);
     if (this.hp <= 0) { this.die(); return true; }
-    if (this.T.stagger && this.state !== 'spawn' && !(this.frozenT > 0)) { this.setState('stagger'); this.anim.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { once: true, fade: 0.05, restart: true }); }
+    if (this.T.stagger && this.state !== 'spawn' && this.state !== 'enter' && !(this.frozenT > 0)) { this.setState('stagger'); this.anim.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { once: true, fade: 0.05, restart: true }); }
     return false;
   }
 
@@ -150,6 +158,11 @@ export class Zombie {
       // held in place until the ice melts
     } else if (this.state === 'spawn') {
       if (this.t >= this.dur) this.walk();
+    } else if (this.state === 'enter') {
+      // Walk straight out of the doorway (through the wall) before joining the chase
+      const ex = this.entry.x - pos.x, ez = this.entry.z - pos.z, d = Math.hypot(ex, ez);
+      if (d < 0.5 || this.t > 8) this.walk();
+      else { const sp = Math.max(T.speed, 2.4); pos.x += ex / d * sp * dt; pos.z += ez / d * sp * dt; this.heading = Math.atan2(ex, ez); }
     } else if (this.state === 'chase') {
       const near = THREE.MathUtils.smoothstep(dist, 2, 8);
       const ang = Math.atan2(dx, dz) + Math.sin(G.time * T.wobbleFreq + this.phase) * T.wobble * near;
@@ -203,14 +216,15 @@ export class Zombie {
     if (this.state !== 'dying') {
       this.obj.rotation.y = this.heading;
       // Stay out of props, the player and the arena walls
-      for (const c of G.level.colliders) {
+      const free = this.state === 'enter';      // still coming through the doorway: no walls yet
+      for (const c of free ? [] : G.level.colliders) {
         const ex = pos.x - c.x, ez = pos.z - c.z, R = c.r + this.radius, d2 = ex * ex + ez * ez;
         if (d2 < R * R && d2 > 1e-6) { const d = Math.sqrt(d2); pos.x = c.x + ex / d * R; pos.z = c.z + ez / d * R; }
       }
       const R = this.radius + 0.35;
       if (dist < R) { pos.x = p.pos.x - dx / dist * R; pos.z = p.pos.z - dz / dist * R; }
       const b = G.level.bounds;
-      pos.x = THREE.MathUtils.clamp(pos.x, b.minX, b.maxX); pos.z = THREE.MathUtils.clamp(pos.z, b.minZ, b.maxZ);
+      if (!free) { pos.x = THREE.MathUtils.clamp(pos.x, b.minX, b.maxX); pos.z = THREE.MathUtils.clamp(pos.z, b.minZ, b.maxZ); }
       if (this.state === 'chase' && this.stepLen && !frozen) {
         // Notice when props stop us from making progress and take a detour
         const made = Math.hypot(pos.x - this.fromX, pos.z - this.fromZ);

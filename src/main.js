@@ -48,7 +48,7 @@ const sun = new THREE.DirectionalLight(0xfff1d0, 2.4);
 sun.position.set(16, 30, 14);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -34, right: 34, top: 26, bottom: -26, near: 1, far: 90 });
+Object.assign(sun.shadow.camera, { left: -46, right: 46, top: 36, bottom: -36, near: 1, far: 110 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
@@ -657,10 +657,9 @@ function updateWaves(dt) {
     q.delay -= dt;
     if (q.delay <= 0) {
       wave.queue.splice(i, 1);
-      const z = q.type === 'boss' ? new Boss(G, G.level.bossSpawn.x, G.level.bossSpawn.z) : new Zombie(G, q.type, q.x, q.z);
+      const z = q.type === 'boss' ? new Boss(G, G.level.bossSpawn.x, G.level.bossSpawn.z) : (q.from ? new Zombie(G, q.type, q.from.x, q.from.z, { x: q.x, z: q.z }) : new Zombie(G, q.type, q.x, q.z));
       G.zombies.push(z);
-      fx.ring(z.pos, 0x9dff5a, 1.8, 0.5);
-      _v.set(q.x, 0.3, q.z); fx.burst(_v, 0x9dff5a, 10, 2.5, 5, 1);
+      if (!q.from && !z.isBoss) { _v.set(q.x, 0.2, q.z); fx.burst(_v, 0xcfd6e6, 6, 1.5, 2, 0.8); }   // just a puff of dust, no marker
     }
   }
   if (wave.queue.length || G.zombies.length) return;
@@ -672,10 +671,11 @@ function updateWaves(dt) {
   for (const [type, n] of G.level.waves[wave.idx]) for (let i = 0; i < n; i++) list.push(type);
   list.sort(() => Math.random() - 0.5);
   // Farthest-first shuffle of spawn points so each wave arrives from several directions
-  const pts = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 7).sort(() => Math.random() - 0.5);
+  const pts = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 8).sort(() => Math.random() - 0.5);
   list.forEach((type, i) => {
     const s = pts[i % pts.length];
-    wave.queue.push({ type, x: s.x + (Math.random() - 0.5) * 0.8, z: s.z + (Math.random() - 0.5) * 0.8, delay: 0.4 + i * 0.7 });
+    // random hidden spawn, random timing: no two waves arrive the same way
+    wave.queue.push({ type, x: s.x + (Math.random() - 0.5) * 0.8, z: s.z + (Math.random() - 0.5) * 0.8, from: s.from, delay: 0.4 + Math.random() * list.length * 0.55 });
   });
   spawnPickup();
   if (wave.idx > 0) hud.banner('WAVE ' + (wave.idx + 1), wave.idx === G.level.waves.length - 1 ? 'Something big is coming…' : 'Here they come!');
@@ -696,9 +696,9 @@ function dropSlime(x, z) {
 G.dropSlime = dropSlime;
 /** Extra zombies called in mid-fight (used by the boss). */
 G.spawnMinion = type => {
-  const far = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 7);
+  const far = G.level.spawns.filter(s => Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > 8);
   const s = far[(Math.random() * far.length) | 0] || G.level.spawns[0];
-  wave.queue.push({ type, x: s.x + (Math.random() - 0.5), z: s.z + (Math.random() - 0.5), delay: 0.3 + Math.random() * 1.5 });
+  wave.queue.push({ type, x: s.x + (Math.random() - 0.5), z: s.z + (Math.random() - 0.5), from: s.from, delay: 0.3 + Math.random() * 1.5 });
 };
 function updateSlimes(dt) {
   const p = player;
@@ -888,6 +888,7 @@ function update(dt) {
     if (travelT > 0.45) hud.$('iris').classList.add('closed');
     if (travelT >= 1.3) { loadLevel(levelIdx + 1); beginEncounter(); updateCamera(0, true); }
   }
+  G.level.update(dt, G.time, G);      // ambient life: birds, fans, fountain spray…
   fx.update(dt);
   updateCamera(dt);
 
